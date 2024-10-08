@@ -2,12 +2,12 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/emiago/sipgo)](https://goreportcard.com/report/github.com/emiago/sipgo)
 ![Used By](https://sourcegraph.com/github.com/emiago/sipgo/-/badge.svg)
-![Coverage](https://img.shields.io/badge/coverage-45.9%25-blue)
+![Coverage](https://img.shields.io/badge/coverage-47.0%25-blue)
 [![License](https://img.shields.io/badge/License-BSD_2--Clause-orange.svg)](https://github.com/emiago/sipgo/LICENCE) 
 ![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/emiago/sipgo)
 
 **SIPGO** is library for writing fast SIP services in GO language.  
-It comes with [SIP stack](/sip/README.md) ([RFC 3261](https://datatracker.ietf.org/doc/html/rfc3261)|[RFC3581](https://datatracker.ietf.org/doc/html/rfc3581)) optimized for fast parsing.
+It comes with [SIP stack](/sip/README.md) ([RFC 3261](https://datatracker.ietf.org/doc/html/rfc3261)|[RFC3581](https://datatracker.ietf.org/doc/html/rfc3581)|[RFC6026](https://datatracker.ietf.org/doc/html/rfc6026) optimized for fast parsing.
 
 ---
 **NOTE**: LIBRARY IS IN PROCESS GETTING TO 1.0. THIS MAY TAKE TIME UNTIL WE CLOSE ALL ISSUES. PLEASE OPEN ISSUES FOR DISCUSSION FIRST INSTEAD PULL REQUESTS. OTHER NOTES:
@@ -213,18 +213,19 @@ client.WriteRequest(req)
 
 ## Dialog handling
 
-`DialogClient` and `DialogServer` allow easier managing multiple dialog (Calls) sessions. 
+`DialogUA` is helper struct to create `Dialog`. 
+**Dialog** can be **as server** or **as client** created. Later on this provides you RFC way of sending request within dialog `Do` or `TransactionRequest` functions.
+
+For basic usage `DialogClientCache` and `DialogServerCache` are created to be part of library to manage and cache dialog accross multiple request.
 They are seperated based on your **request context**, but they act more like `peer`.
-They both need `client` **handle** to be able send request and `server` **handle** to accept request.
+
+---
+**NOTE**: **It is recomended that you build your OWN Dialog Server/Client Cache mechanism for dialogs.**
 
 ---
 
-**NOTE**: 
+For basic control some handling request wrappers like `Ack`, `Bye`, `ReadAck`, `ReadBye` is provided. Sending  any other request should be done with `Do` or receiving can be validated with `ReadRequest`
 
-`DialogClient` and `DialogServer` are wrappers for `DialogUA` with **cache layer **and may be moved to seperate package.
-Use `DialogUA` for building dialog control and extend with your own Cache layer. Matching dialog by ID are exposed functions.
-
----
 
 **UAC**:
 ```go

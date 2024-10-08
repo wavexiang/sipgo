@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/emiago/sipgo/sip"
 	"github.com/icholy/digest"
@@ -158,18 +159,19 @@ func (s *DialogClientSession) TransactionRequest(ctx context.Context, req *sip.R
 
 	// Check record route header
 	if s.InviteResponse != nil {
-		// cont := s.InviteResponse.Contact()
-		// if cont != nil {
-		// 	req.Recipient = cont.Address
-		// }
+		hdrs := s.InviteResponse.GetHeaders("record-route")
+		if len(hdrs) > 0 {
+			for i := len(hdrs) - 1; i >= 0; i-- {
+				// We need to put record-route as recipient in case of strict routing
+				recordRoute := hdrs[i]
+				req.AppendHeader(sip.NewHeader("Route", recordRoute.Value()))
+			}
 
-		if rr := s.InviteResponse.RecordRoute(); rr != nil {
-			if rr.Address.UriParams.Has("lr") {
-				req.AppendHeader(&sip.RouteHeader{
-					Address: rr.Address,
-				})
-			} else {
-				req.SetDestination(rr.Address.HostPort())
+			// Now check top most route header with lazy header parsing
+			rh := req.Route()
+			if !rh.Address.UriParams.Has("lr") {
+				// this is strict routing
+				req.Recipient = rh.Address
 			}
 		}
 	}
@@ -224,6 +226,10 @@ type AnswerOptions struct {
 	Password string
 }
 
+var (
+	WaitAnswerForceCancelErr = errors.New("Context cancel forced")
+)
+
 // WaitAnswer waits for success response or returns ErrDialogResponse in case non 2xx
 // Canceling context while waiting 2xx will send Cancel request. It will block until 1xx provisional is not received
 // If Canceling succesfull context.Canceled error is returned
@@ -232,7 +238,6 @@ type AnswerOptions struct {
 // - any internal in case waiting answer failed for different reasons
 func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions) error {
 	tx, inviteRequest := s.inviteTx, s.InviteRequest
-
 	var r *sip.Response
 	var err error
 	for {
@@ -246,6 +251,11 @@ func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions
 			// Cancel can only be sent when provisional is received
 			// We will wait until transaction timeous out (TimerB)
 			defer tx.Terminate()
+
+			if err := context.Cause(ctx); err == WaitAnswerForceCancelErr {
+				// In case caller wants to force cancelation exit.
+				return ctx.Err()
+			}
 
 			if s.InviteResponse == nil {
 				select {
@@ -269,7 +279,12 @@ func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions
 				return fmt.Errorf("cancel failed with non 200. code=%d", res.StatusCode)
 			}
 
-			// Wait for 487 or just timeout per TimerB (tx.Done)
+			// Wait for 487 or just timeout
+			// https://datatracker.ietf.org/doc/html/rfc3261#section-9.1
+			// UAC canceling a request cannot rely on receiving a 487 (Request
+			// Terminated) response for the original request, as an RFC 2543-
+			// compliant UAS will not generate such a response.  If there is no
+			// final response for the original request in 64*T1 seconds
 		loop_487:
 			for {
 				select {
@@ -281,6 +296,8 @@ func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions
 					break loop_487
 				case <-tx.Done():
 					return tx.Err()
+				case <-time.After(64 * sip.T1):
+					break loop_487
 				}
 			}
 
