@@ -92,7 +92,6 @@ func (s *DialogServerSession) ReadReInvite(req *sip.Request, tx sip.ServerTransa
 	s.InviteRequest.ReplaceHeader(req.CSeq())
 	s.InviteResponse.ReplaceHeader(req.CSeq())
 	s.lastCSeqNo.Store(req.CSeq().SeqNo)
-	s.inviteTx = tx
 	return nil
 }
 
