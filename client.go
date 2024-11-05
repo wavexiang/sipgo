@@ -121,7 +121,13 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// Deprecated use Hostname
 func (c *Client) GetHostname() string {
+	return c.host
+}
+
+// Hostname returns default hostname or what is set WithHostname option
+func (c *Client) Hostname() string {
 	return c.host
 }
 
@@ -424,6 +430,9 @@ func digestProxyAuthApply(req *sip.Request, res *sip.Response, opts digest.Optio
 		return fmt.Errorf("fail to parse challenge authHeader=%q: %w", authHeader.Value(), err)
 	}
 
+	// Fix lower case algorithm although not supported by rfc
+	chal.Algorithm = sip.ASCIIToUpper(chal.Algorithm)
+
 	// Reply with digest
 	cred, err := digest.Digest(chal, opts)
 	if err != nil {
@@ -441,6 +450,9 @@ func digestAuthApply(req *sip.Request, res *sip.Response, opts digest.Options) e
 	if err != nil {
 		return fmt.Errorf("fail to parse chalenge wwwauth=%q: %w", wwwAuth.Value(), err)
 	}
+
+	// Fix lower case algorithm although not supported by rfc
+	chal.Algorithm = sip.ASCIIToUpper(chal.Algorithm)
 
 	// Reply with digest
 	cred, err := digest.Digest(chal, opts)

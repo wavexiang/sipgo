@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"time"
 )
 
 const (
@@ -19,10 +18,6 @@ const (
 	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
 	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 // https://github.com/kpbird/golang_random_string
 func RandString(n int) string {
@@ -107,6 +102,33 @@ func ASCIIToLowerInPlace(s []byte) {
 		}
 		s[i] = c
 	}
+}
+
+func ASCIIToUpper(s string) string {
+	// first check is ascii already up to avoid alloc
+	nonLowInd := -1
+	for i, c := range s {
+		if 'A' <= c && c <= 'Z' {
+			continue
+		}
+		nonLowInd = i
+		break
+	}
+	if nonLowInd < 0 {
+		return s
+	}
+
+	var b strings.Builder
+	b.Grow(len(s))
+	b.WriteString(s[:nonLowInd])
+	for i := nonLowInd; i < len(s); i++ {
+		c := s[i]
+		if 'a' <= c && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // HeaderToLower is fast ASCII lower string
@@ -229,14 +251,6 @@ func findAnyUnescaped(text string, targets string, delims ...delimiter) int {
 	}
 
 	return -1
-}
-
-// ResolveSelfIP returns first non loopback IP
-//
-// Deprecated use ResolveInterfacesIP
-func ResolveSelfIP() (net.IP, error) {
-	ip, _, err := ResolveInterfacesIP("ip4", nil)
-	return ip, err
 }
 
 // ResolveInterfaceIP will check current interfaces and resolve to IP
