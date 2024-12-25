@@ -38,6 +38,8 @@ func HeaderClone(h Header) Header {
 type headers struct {
 	headerOrder []Header
 
+	// Here we only need headers that have frequent access.
+	// DO not add any custom headers, or more specific headers
 	via           *ViaHeader
 	from          *FromHeader
 	to            *ToHeader
@@ -405,6 +407,24 @@ func (hs *headers) RecordRoute() *RecordRouteHeader {
 		}
 	}
 	return hs.recordRoute
+}
+
+// ReferTo parses underlying Refer-To header or nil if not exists
+func (hs *headers) ReferTo() *ReferToHeader {
+	h := &ReferToHeader{}
+	if parseHeaderLazy(hs, parseReferToHeader, []string{"refer-to"}, h) {
+		return h
+	}
+	return nil
+}
+
+// ReferredBy parses underlying Referred-By header or nil if not exists
+func (hs *headers) ReferredBy() *ReferredByHeader {
+	h := &ReferredByHeader{}
+	if parseHeaderLazy(hs, parseReferredByHeader, []string{"referred-by"}, h) {
+		return h
+	}
+	return nil
 }
 
 // NewHeader creates generic type of header
@@ -1012,6 +1032,107 @@ func (h *RecordRouteHeader) Clone() *RecordRouteHeader {
 		Address: *h.Address.Clone(),
 	}
 	return newRoute
+}
+
+// ReferToHeader is Refer-To header representation.
+type ReferToHeader struct {
+	Address Uri
+}
+
+func (h *ReferToHeader) Name() string { return "Refer-To" }
+
+func (h *ReferToHeader) Value() string {
+	var buffer strings.Builder
+	h.ValueStringWrite(&buffer)
+	return buffer.String()
+}
+
+func (h *ReferToHeader) ValueStringWrite(buffer io.StringWriter) {
+	buffer.WriteString("<")
+	h.Address.StringWrite(buffer)
+	buffer.WriteString(">")
+}
+
+func (h *ReferToHeader) String() string {
+	var buffer strings.Builder
+	h.StringWrite(&buffer)
+	return buffer.String()
+}
+
+func (h *ReferToHeader) StringWrite(buffer io.StringWriter) {
+	buffer.WriteString(h.Name())
+	buffer.WriteString(": ")
+	h.ValueStringWrite(buffer)
+}
+
+func (h *ReferToHeader) headerClone() Header {
+	return h.Clone()
+}
+
+func (h *ReferToHeader) Clone() *ReferToHeader {
+	newTarget := &ReferToHeader{
+		Address: *h.Address.Clone(),
+	}
+	return newTarget
+}
+
+// ReferredByHeader is Referred-By header representation.
+type ReferredByHeader struct {
+	DisplayName string
+	Address     Uri
+	Params      HeaderParams
+}
+
+func (h *ReferredByHeader) Name() string { return "Referred-By" }
+
+func (h *ReferredByHeader) Value() string {
+	var buffer strings.Builder
+	h.ValueStringWrite(&buffer)
+	return buffer.String()
+}
+
+func (h *ReferredByHeader) ValueStringWrite(buffer io.StringWriter) {
+	if h.DisplayName != "" {
+		buffer.WriteString("\"")
+		buffer.WriteString(h.DisplayName)
+		buffer.WriteString("\" ")
+	}
+
+	buffer.WriteString("<")
+	h.Address.StringWrite(buffer)
+	buffer.WriteString(">")
+
+	if h.Params != nil && h.Params.Length() > 0 {
+		buffer.WriteString(";")
+		h.Params.ToStringWrite(';', buffer)
+	}
+}
+
+func (h *ReferredByHeader) String() string {
+	var buffer strings.Builder
+	h.StringWrite(&buffer)
+	return buffer.String()
+}
+
+func (h *ReferredByHeader) StringWrite(buffer io.StringWriter) {
+	buffer.WriteString(h.Name())
+	buffer.WriteString(": ")
+	h.ValueStringWrite(buffer)
+}
+
+func (h *ReferredByHeader) headerClone() Header {
+	return h.Clone()
+}
+
+func (h *ReferredByHeader) Clone() *ReferredByHeader {
+	newTarget := &ReferredByHeader{
+		DisplayName: h.DisplayName,
+		Address:     *h.Address.Clone(),
+	}
+	if h.Params != nil {
+		newTarget.Params = h.Params.Clone()
+	}
+	return newTarget
 }
 
 // Copy all headers of one type from one message to another.

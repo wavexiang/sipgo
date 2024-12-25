@@ -140,13 +140,55 @@ func (s *DialogClientSession) Do(ctx context.Context, req *sip.Request) (*sip.Re
 // https://www.rfc-editor.org/rfc/rfc3261#section-12.2.1
 // This ensures that you have proper request done within dialog. You should avoid setting any Dialog header (cseq, from, to, callid)
 func (s *DialogClientSession) TransactionRequest(ctx context.Context, req *sip.Request) (sip.ClientTransaction, error) {
+	s.buildReq(req)
+	// Passing option to avoid CSEQ apply
+	return s.ua.Client.TransactionRequest(ctx, req, s.addVia)
+}
+
+func (s *DialogClientSession) WriteRequest(req *sip.Request) error {
+	s.buildReq(req)
+	return s.ua.Client.WriteRequest(req, s.addVia)
+}
+
+func (s *DialogClientSession) addVia(c *Client, req *sip.Request) error {
+	if req.Via() == nil {
+		ClientRequestAddVia(c, req)
+	}
+	return nil
+}
+
+func (s *DialogClientSession) buildReq(req *sip.Request) {
+	// Keep any request inside dialog
+	// var mustHaveHeaders []sip.Header = nil
+	mustHaveHeaders := make([]sip.Header, 0, 5)
+	if h, invH := req.From(), s.InviteRequest.From(); h == nil {
+		mustHaveHeaders = append(mustHaveHeaders, sip.HeaderClone(invH))
+	}
+
+	if h, invH := req.To(), s.InviteResponse.To(); h == nil && invH != nil {
+		mustHaveHeaders = append(mustHaveHeaders, sip.HeaderClone(invH))
+	}
+
+	if h, invH := req.CallID(), s.InviteRequest.CallID(); h == nil {
+		mustHaveHeaders = append(mustHaveHeaders, sip.HeaderClone(invH))
+	}
+
+	if h := req.MaxForwards(); h == nil {
+		maxFwd := sip.MaxForwardsHeader(70)
+		mustHaveHeaders = append(mustHaveHeaders, &maxFwd)
+	}
+
 	cseq := req.CSeq()
 	if cseq == nil {
 		cseq = &sip.CSeqHeader{
 			SeqNo:      s.InviteRequest.CSeq().SeqNo,
 			MethodName: req.Method,
 		}
-		req.AppendHeader(cseq)
+		// req.AppendHeader(cseq)
+		mustHaveHeaders = append(mustHaveHeaders, sip.HeaderClone(cseq))
+	}
+	if len(mustHaveHeaders) > 0 {
+		req.PrependHeader(mustHaveHeaders...)
 	}
 
 	// For safety make sure we are starting with our last dialog cseq num
@@ -160,6 +202,8 @@ func (s *DialogClientSession) TransactionRequest(ctx context.Context, req *sip.R
 	// Check record route header
 	if s.InviteResponse != nil {
 		hdrs := s.InviteResponse.GetHeaders("record-route")
+		// More on
+		// https://datatracker.ietf.org/doc/html/rfc3261#section-16.12.1.1
 		if len(hdrs) > 0 {
 			for i := len(hdrs) - 1; i >= 0; i-- {
 				// We need to put record-route as recipient in case of strict routing
@@ -173,36 +217,16 @@ func (s *DialogClientSession) TransactionRequest(ctx context.Context, req *sip.R
 				// this is strict routing
 				req.Recipient = rh.Address
 			}
+		} else if s.ua.RewriteContact {
+			req.SetDestination(s.InviteResponse.Source())
 		}
+	}
+
+	if h := req.Contact(); h == nil {
+		req.AppendHeader(sip.HeaderClone(&s.ua.ContactHDR))
 	}
 
 	s.lastCSeqNo.Store(cseq.SeqNo)
-	// Keep any request inside dialog
-	if h, invH := req.From(), s.InviteRequest.From(); h == nil {
-		req.AppendHeader(sip.HeaderClone(invH))
-	}
-
-	if h, invH := req.To(), s.InviteResponse.To(); h == nil && invH != nil {
-		req.AppendHeader(sip.HeaderClone(invH))
-	}
-
-	if h, invH := req.CallID(), s.InviteRequest.CallID(); h == nil {
-		req.AppendHeader(sip.HeaderClone(invH))
-	}
-
-	// Passing option to avoid CSEQ apply
-	return s.ua.Client.TransactionRequest(ctx, req, ClientRequestBuild)
-}
-
-func (s *DialogClientSession) WriteRequest(req *sip.Request) error {
-	// Check Record-Route Header
-	if s.InviteResponse != nil {
-		// Record Route handling
-		if rr := s.InviteResponse.RecordRoute(); rr != nil {
-			req.SetDestination(rr.Address.HostPort())
-		}
-	}
-	return s.ua.Client.WriteRequest(req)
 }
 
 // Close must be always called in order to cleanup some internal resources
@@ -394,7 +418,7 @@ func (s *DialogClientSession) WaitAnswer(ctx context.Context, opts AnswerOptions
 
 // Ack sends ack. Use WriteAck for more customizing
 func (s *DialogClientSession) Ack(ctx context.Context) error {
-	ack := sip.NewAckRequest(s.InviteRequest, s.InviteResponse, nil)
+	ack := newAckRequestUAC(s.InviteRequest, s.InviteResponse, nil)
 	return s.WriteAck(ctx, ack)
 }
 
@@ -448,6 +472,66 @@ func (s *DialogClientSession) WriteBye(ctx context.Context, bye *sip.Request) er
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// newAckRequestUAC creates ACK request for 2xx INVITE
+// https://tools.ietf.org/html/rfc3261#section-13.2.2.4
+// NOTE: it does not copy Via header. This is left to transport or caller to enforce
+func newAckRequestUAC(inviteRequest *sip.Request, inviteResponse *sip.Response, body []byte) *sip.Request {
+	Recipient := &inviteRequest.Recipient
+	if contact := inviteResponse.Contact(); contact != nil {
+		Recipient = &contact.Address
+	}
+	ackRequest := sip.NewRequest(
+		sip.ACK,
+		*Recipient.Clone(),
+	)
+	ackRequest.SipVersion = inviteRequest.SipVersion
+
+	if len(inviteRequest.GetHeaders("Route")) > 0 {
+		sip.CopyHeaders("Route", inviteRequest, ackRequest)
+	}
+
+	if h := inviteRequest.From(); h != nil {
+		ackRequest.AppendHeader(sip.HeaderClone(h))
+	}
+
+	if h := inviteResponse.To(); h != nil {
+		ackRequest.AppendHeader(sip.HeaderClone(h))
+	}
+
+	if h := inviteRequest.CallID(); h != nil {
+		ackRequest.AppendHeader(sip.HeaderClone(h))
+	}
+
+	if h := inviteRequest.CSeq(); h != nil {
+		ackRequest.AppendHeader(sip.HeaderClone(h))
+	}
+
+	cseq := ackRequest.CSeq()
+	cseq.MethodName = sip.ACK
+
+	maxForwardsHeader := sip.MaxForwardsHeader(70)
+	ackRequest.AppendHeader(&maxForwardsHeader)
+	/*
+	   	A UAC SHOULD include a Contact header field in any target refresh
+	    requests within a dialog, and unless there is a need to change it,
+	    the URI SHOULD be the same as used in previous requests within the
+	    dialog.  If the "secure" flag is true, that URI MUST be a SIPS URI.
+	    As discussed in Section 12.2.2, a Contact header field in a target
+	    refresh request updates the remote target URI.  This allows a UA to
+	    provide a new contact address, should its address change during the
+	    duration of the dialog.
+	*/
+
+	if h := inviteRequest.Contact(); h != nil {
+		ackRequest.AppendHeader(sip.HeaderClone(h))
+	}
+
+	ackRequest.SetBody(body)
+	ackRequest.SetTransport(inviteRequest.Transport())
+	ackRequest.SetSource(inviteRequest.Source())
+	return ackRequest
 }
 
 // newByeRequestUAC creates bye request from established dialog

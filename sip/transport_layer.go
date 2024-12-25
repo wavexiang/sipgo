@@ -313,6 +313,8 @@ func (l *TransportLayer) ClientRequestConnection(ctx context.Context, req *Reque
 		}
 
 		// Save destination in request to avoid repeated resolving
+		// This also solves problem where subsequent request like NON 2xx ACK can
+		// send on same destination without resolving again.
 		req.SetDestination(raddr.String())
 	}
 
@@ -341,7 +343,7 @@ func (l *TransportLayer) ClientRequestConnection(ctx context.Context, req *Reque
 			return c, nil
 		}
 	} else if l.ConnectionReuse {
-		viaHop.Params.Add("alias", "")
+		// viaHop.Params.Add("alias", "")
 		addr := raddr.String()
 
 		c, _ := transport.GetConnection(addr)
@@ -571,5 +573,24 @@ func NetworkToLower(network string) string {
 		return "wss"
 	default:
 		return ASCIIToLower(network)
+	}
+}
+
+// NetworkToUpper is faster function converting udp, tcp to UDP, tcp
+func NetworkToUpper(network string) string {
+	// Switch is faster then lower
+	switch network {
+	case "udp":
+		return "UDP"
+	case "tcp":
+		return "TCP"
+	case "tls":
+		return "TLS"
+	case "ws":
+		return "WS"
+	case "wss":
+		return "WSS"
+	default:
+		return ASCIIToUpper(network)
 	}
 }

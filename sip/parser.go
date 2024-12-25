@@ -28,6 +28,8 @@ var (
 	ErrParseSipPartial         = errors.New("SIP partial data")
 	ErrParseReadBodyIncomplete = errors.New("reading body incomplete")
 	ErrParseMoreMessages       = errors.New("Stream has more message")
+
+	ParseMaxMessageLength = 65535
 )
 
 func ParseMessage(msgData []byte) (Message, error) {
@@ -101,8 +103,8 @@ func (p *Parser) ParseSIP(data []byte) (msg Message, err error) {
 			}
 			return nil, err
 		}
-
-		if len(line) == 0 {
+		size := len(line)
+		if size == 0 {
 			// We've hit the end of the header section.
 			break
 		}
@@ -114,8 +116,8 @@ func (p *Parser) ParseSIP(data []byte) (msg Message, err error) {
 		}
 	}
 
+	// TODO Use Content Legnth header
 	contentLength := getBodyLength(data)
-
 	if contentLength <= 0 {
 		return msg, nil
 	}
@@ -193,7 +195,6 @@ func nextLine(reader *bytes.Buffer) (line string, err error) {
 	// Lines could be multiline as well so this is also acceptable
 	// TO :
 	// sip:vivekg@chair-dnrc.example.com ;   tag    = 1918181833n
-
 	line, err = reader.ReadString('\r')
 	if err != nil {
 		// We may get io.EOF and line till it was read

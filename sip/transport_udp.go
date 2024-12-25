@@ -99,7 +99,14 @@ func (t *transportUDP) CreateConnection(ctx context.Context, laddr Addr, raddr A
 func (t *transportUDP) createConnection(ctx context.Context, laddr Addr, raddr Addr, handler MessageHandler) (Connection, error) {
 	laddrStr := laddr.String()
 	lc := &net.ListenConfig{}
-	udpconn, err := lc.ListenPacket(ctx, "udp", laddrStr)
+
+	protocol := "udp"
+	if laddr.IP == nil && raddr.IP.To4() != nil {
+		// Use IPV4 if remote is same
+		protocol = "udp4"
+	}
+
+	udpconn, err := lc.ListenPacket(ctx, protocol, laddrStr)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +180,7 @@ func (t *transportUDP) readUDPConnection(conn *UDPConnection, raddr string, ladd
 } */
 
 func (t *transportUDP) readListenerConnection(conn *UDPConnection, laddr string, handler MessageHandler) {
-	buf := make([]byte, transportBufferSize)
+	buf := make([]byte, TransportBufferReadSize)
 	defer t.pool.CloseAndDelete(conn, laddr)
 	defer t.log.Debug().Str("addr", laddr).Msg("Read listener connection stopped")
 
