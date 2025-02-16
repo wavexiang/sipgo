@@ -133,7 +133,8 @@ func (c *Client) TransactionRequest(ctx context.Context, req *sip.Request, optio
 
 	if len(options) == 0 {
 		if cseq := req.CSeq(); cseq != nil {
-			// Increase cseq if this is existing transaction
+			// Increase cseq if this is new transaction but has cseq added.
+			// Request within dialog should not have this behavior
 			// WriteRequest for ex ACK will not increase and this is wanted behavior
 			// This will be a problem if we allow ACK to be passed as transaction request
 			cseq.SeqNo++
@@ -338,12 +339,6 @@ func clientRequestBuildReq(c *Client, req *sip.Request) error {
 // ClientRequestAddVia is option for adding via header
 // Based on proxy setup https://www.rfc-editor.org/rfc/rfc3261.html#section-16.6
 func ClientRequestAddVia(c *Client, r *sip.Request) error {
-	via := clientRequestCreateVia(c, r)
-	r.PrependHeader(via)
-	return nil
-}
-
-func clientRequestCreateVia(c *Client, r *sip.Request) *sip.ViaHeader {
 	// TODO
 	// A client that sends a request to a multicast address MUST add the
 	// "maddr" parameter to its Via header field value containing the
